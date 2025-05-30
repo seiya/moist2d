@@ -110,7 +110,7 @@ const EPS = FT(1e-12) # Small value to avoid division by zero
     k_abs_qc::T = T(20.0) # Absorption coefficient for cloud water (m^2/kg)
     k_abs_qr::T = T(10.0) # Absorption coefficient for rain water (m^2/kg)
     surf_emissivity::T = T(1.0) # Surface emissivity
-    tau_cooling::T = T(864000.0) # Timescale for Newtonian cooling in stratosphere (K/s)
+    tau_cooling::T = T(864000.0) # Timescale for Newtonian cooling in stratosphere (s)
     #u0::T = T(10.0) # Base horizontal velocity
     u0::T = T(0.0)
     theta0::T = T(300.0) # Base potential temperature (K)
@@ -243,7 +243,7 @@ mutable struct State{A,B,C}
     d_rho_qc_mp::A    # Tendency of mass of cloud water by cloud microphysics (kg/m^3/s)
     d_rho_qr_mp::A    # Tendency of mass of rain water by cloud microphysics (kg/m^3/s)
     d_rho_qr_sed::A   # Tendency of mass of rain water by rain sedimentation (kg/m^3/s)
-    d_rho_u_sf::B     # Tendency of horizontal momentume by surface flux (kg/m^2/s^2)
+    d_rho_u_sf::B     # Tendency of horizontal momentum by surface flux (kg/m^2/s^2)
     d_rho_theta_sf::B # Tendency of mass-weighted potential temperature by surface flux (kg K/m^3/s)
     d_rho_qv_sf::B    # Tendency of mass of vapor by surface flux (kg/m^3/s)
     d_rho_theta_rd::A # Tendency of mass-weighted potential temperature by radiation (kg K/m^3/s)
