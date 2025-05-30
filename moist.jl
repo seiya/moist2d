@@ -304,7 +304,12 @@ end
 end
 
 @inline function f2h(vf1, vf2, dz1, dz2)
-    vh = vf1 * dz2 + vf2 * dz1 / (dz1 + dz2)
+    # Weighted interpolation from face values `vf1`, `vf2` to the cell center.
+    # The original implementation was missing parentheses which effectively
+    # computed `vf1 * dz2 + (vf2 * dz1) / (dz1 + dz2)`. This returned
+    # inaccurate results and broke conservation properties.  Correct formula is
+    # `(vf1 * dz2 + vf2 * dz1) / (dz1 + dz2)`.
+    vh = (vf1 * dz2 + vf2 * dz1) / (dz1 + dz2)
     return vh
 end
 
