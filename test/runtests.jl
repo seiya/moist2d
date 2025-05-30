@@ -33,3 +33,13 @@ end
 
     @test dc ≈ expected
 end
+
+@testset "saturation_vapor_pressure" begin
+    T0 = FT(273.15)
+    es, des_dT = saturation_vapor_pressure(T0)
+    @test es ≈ ES0 atol = FT(1e-3)
+
+    eps_T = eps(T0)
+    es2, _ = saturation_vapor_pressure(T0 + eps_T)
+    @test des_dT ≈ (es2 - es) / eps_T rtol = FT(5e-2)
+end
