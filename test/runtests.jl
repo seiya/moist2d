@@ -14,3 +14,22 @@ end
     @test A[:, 1:p.halo] == A[:, (p.ie-p.halo+1):p.ie]
     @test A[:, (p.ie+1):(p.ie+p.halo)] == A[:, p.is:(p.is+p.halo-1)]
 end
+
+@testset "solve_tridiagonal!" begin
+    # Coefficients for a simple 3x3 tridiagonal system
+    a = [0.0, -1.0, -1.0]
+    b = [2.0, 2.0, 2.0]
+    c = [-1.0, -1.0, 0.0]
+    d = [1.0, 2.0, 3.0]
+
+    expected = [2.5, 4.0, 3.5]
+
+    ac = copy(a)
+    bc = copy(b)
+    cc = copy(c)
+    dc = copy(d)
+
+    solve_tridiagonal!(ac, bc, cc, dc)
+
+    @test dc ≈ expected
+end
