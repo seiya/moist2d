@@ -6,5 +6,5 @@ Two-dimensional moist simulation model with fully compressible non‑hydrostatic
 Execute the following command from the project directory:
 
 ```bash
-julia --project -e 'using Pkg; Pkg.test()'
+julia test/runtests.jl
 ```
