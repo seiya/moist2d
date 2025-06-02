@@ -40,32 +40,6 @@ end
     @test dc ≈ expected
 end
 
-@testset "saturation_vapor_pressure" begin
-    T0 = FT(273.15)
-    es, des_dT = saturation_vapor_pressure(T0)
-    @test es ≈ ES0 atol = FT(1e-3)
-
-    eps_T = eps(T0)
-    es2, _ = saturation_vapor_pressure(T0 + eps_T)
-    @test des_dT ≈ (es2 - es) / eps_T rtol = FT(5e-2)
-end
-
-@testset "saturation_specific_humidity" begin
-    p = 1.0f5
-    T_k = 300.0f0
-    es, _ = saturation_vapor_pressure(T_k)
-    tmp = p - (1.0f0 - EPSvap) * es
-    qsat_ref = EPSvap * es / tmp
-    dqsat_des_ref = EPSvap * p / tmp^2
-    qsat, dqsat_des = saturation_specific_humidity(p, es)
-    @test qsat ≈ qsat_ref
-
-    delta = eps(es)
-    qsat2, _ = saturation_specific_humidity(p, es + delta)
-    dqsat_des_fd = (qsat2 - qsat) / delta
-    @test isapprox(dqsat_des, dqsat_des_fd; atol=2f-6)
-end
-
 @testset "koren_limiter" begin
     @test koren_limiter(0.0f0) == 0.0f0
     @test koren_limiter(1.0f0) == 1.0f0
@@ -242,4 +216,46 @@ end
         end
         @test lhs ≈ d[idx] atol=1e-6
     end
+end
+
+@testset "saturation_vapor_pressure" begin
+    T0 = FT(273.15)
+    es, des_dT = saturation_vapor_pressure(T0)
+    @test es ≈ ES0 atol = FT(1e-3)
+
+    eps_T = eps(T0)
+    es2, _ = saturation_vapor_pressure(T0 + eps_T)
+    @test des_dT ≈ (es2 - es) / eps_T rtol = FT(5e-2)
+end
+
+@testset "saturation_specific_humidity" begin
+    p = 1.0f5
+    T_k = 300.0f0
+    es, _ = saturation_vapor_pressure(T_k)
+    tmp = p - (1.0f0 - EPSvap) * es
+    qsat_ref = EPSvap * es / tmp
+    dqsat_des_ref = EPSvap * p / tmp^2
+    qsat, dqsat_des = saturation_specific_humidity(p, es)
+    @test qsat ≈ qsat_ref
+
+    delta = eps(es)
+    qsat2, _ = saturation_specific_humidity(p, es + delta)
+    dqsat_des_fd = (qsat2 - qsat) / delta
+    @test isapprox(dqsat_des, dqsat_des_fd; atol=2f-6)
+end
+
+@testset "invert_T_for_thetae" begin
+    qt = FT(0.02)
+    theta_e = FT(320.0)
+    T_est, qsat = invert_T_for_thetae(qt, theta_e, P0)
+    @test 250 <= T_est <= 350
+    @test qsat > 0
+
+    es, _ = saturation_vapor_pressure(T_est)
+    qsat_ref, _ = saturation_specific_humidity(P0, es)
+    qd = FT(1.0) - qt
+    cp = Cpd * qd + Cpl * qt
+    p_d = P0 - es
+    theta_e_ref = T_est * (p_d / P0)^(-Rd / cp) * exp(Lv * qsat_ref / (cp * T_est))
+    @test theta_e_ref ≈ theta_e atol=FT(1e-3)
 end
