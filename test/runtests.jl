@@ -3,6 +3,12 @@ include("../moist.jl")
 
 @testset "f2h" begin
     @test f2h(1.0f0, 2.0f0, 3.0f0, 4.0f0) ≈ (1.0f0*4.0f0 + 2.0f0*3.0f0) / 7.0f0
+    # Identity: when both face values are equal the result should be the same
+    @test f2h(5.0f0, 5.0f0, 2.0f0, 7.0f0) ≈ 5.0f0
+    # Nonuniform dz weighting
+    @test f2h(2.0f0, 4.0f0, 1.0f0, 3.0f0) ≈ (2.0f0*3.0f0 + 4.0f0*1.0f0) / 4.0f0
+    # Symmetry when swapping vf and dz pairs
+    @test f2h(2.0f0, 4.0f0, 1.0f0, 3.0f0) ≈ f2h(4.0f0, 2.0f0, 3.0f0, 1.0f0)
 end
 
 @testset "exchange_halo" begin
