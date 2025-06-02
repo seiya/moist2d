@@ -66,6 +66,24 @@ end
     @test isapprox(dqsat_des, dqsat_des_fd; atol=2f-6)
 end
 
+@testset "koren_limiter" begin
+    @test koren_limiter(0.0f0) == 0.0f0
+    @test koren_limiter(1.0f0) == 1.0f0
+    @test koren_limiter(2.0f0) ≈ 5.0f0 / 3.0f0
+
+    @test koren_limiter(-1.0f0) == 0.0f0
+    @test koren_limiter(3.0f0) == 2.0f0
+
+    for r in (0.0f0, 1.0f0, 2.0f0)
+        v = koren_limiter(r)
+        @test 0.0f0 <= v <= 2.0f0
+    end
+
+    rs = Float32[-1, 0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+    phis = koren_limiter.(rs)
+    @test all(diff(phis) .>= 0.0f0)
+end
+
 @testset "compute_limited_flux_x" begin
     p = Params(Float32; Nx=6, Nz=4, H=4.0, dz0=1.0, z_fact=1.0)
 
