@@ -65,3 +65,49 @@ end
     dqsat_des_fd = (qsat2 - qsat) / delta
     @test isapprox(dqsat_des, dqsat_des_fd; atol=2f-6)
 end
+
+@testset "compute_limited_flux_x" begin
+    p = Params(Float32; Nx=6, Nz=4, H=4.0, dz0=1.0, z_fact=1.0)
+
+    scalar_rho = zeros(Float32, p.ka, p.ia)
+    rho = ones(Float32, p.ka, p.ia)
+    rho_u = zeros(Float32, p.ka, p.ia)
+
+    for j in 1:p.ia
+        scalar_rho[p.ks, j] = j
+    end
+
+    k = p.ks
+    i = p.is + 1
+
+    # Positive rho_u -> upwind from left
+    rho_u[k, i] = 1.0f0
+    flux_pos = compute_limited_flux_x(scalar_rho, rho, rho_u, k, i, p)
+    s_im1 = scalar_rho[k, i-1] / rho[k, i-1]
+    s_i = scalar_rho[k, i] / rho[k, i]
+    s_ip1 = scalar_rho[k, i+1] / rho[k, i+1]
+    r_num = s_ip1 - s_i
+    r_den = s_i - s_im1
+    r = abs(r_den) < EPS ? 1.0f0 : r_num / r_den
+    phi = koren_limiter(r)
+    s_face_exp = s_i + 0.5f0 * phi * r_den
+    @test flux_pos ≈ s_face_exp * rho_u[k, i]
+
+    # Negative rho_u -> upwind from right
+    rho_u[k, i] = -1.0f0
+    flux_neg = compute_limited_flux_x(scalar_rho, rho, rho_u, k, i, p)
+    s_ip2 = scalar_rho[k, i+2] / rho[k, i+2]
+    r_num = s_i - s_ip1
+    r_den = s_ip1 - s_ip2
+    r = abs(r_den) < EPS ? 1.0f0 : r_num / r_den
+    phi = koren_limiter(r)
+    s_face_exp = s_ip1 + 0.5f0 * phi * r_den
+    @test flux_neg ≈ s_face_exp * rho_u[k, i]
+
+    # Zero rho_u -> centered interpolation
+    rho_u[k, i] = 0.0f0
+    flux_zero = compute_limited_flux_x(scalar_rho, rho, rho_u, k, i, p)
+    s_face_h = 0.5f0 * (s_i + s_ip1)
+    @test flux_zero == 0.0f0
+    @test s_face_h ≈ f2h(s_i, s_ip1, p.dx, p.dx)
+end
