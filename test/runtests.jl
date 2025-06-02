@@ -240,6 +240,34 @@ end
     @test isapprox(mass_after, expected; atol=1e-4)
 end
 
+@testset "rk3_step" begin
+    p = Params(Nx=4, Nz=4, H=400.0f0, ns=1)
+    rngs = [Random.Xoshiro(i) for i in 1:Threads.nthreads()]
+    s_init = init_state!(allocate_state(p), p, rngs)
+
+    # Predict state after a single compute_step!
+    s_single = deepcopy(s_init)
+    zeros2d = zeros(FT, p.ka, p.ia)
+    phys_args = (zeros2d, zeros2d, zeros2d, zeros2d, zeros2d, zeros2d)
+    compute_step!(phys_args..., s_single, deepcopy(s_init), p, p.dt, p.ns)
+    mass_pred = sum(s_single.rho)
+
+    # Run one RK3 step
+    s_rk3 = deepcopy(s_init)
+    rk3_step!(s_rk3, p)
+    mass_rk3 = sum(s_rk3.rho)
+
+    arrays_finite = all(isfinite, s_rk3.rho) &&
+                    all(isfinite, s_rk3.rho_u) &&
+                    all(isfinite, s_rk3.rho_w) &&
+                    all(isfinite, s_rk3.rho_theta) &&
+                    all(isfinite, s_rk3.rho_qv) &&
+                    all(isfinite, s_rk3.rho_qc) &&
+                    all(isfinite, s_rk3.rho_qr)
+    @test arrays_finite
+    @test isapprox(mass_rk3, mass_pred; atol=1e-3, rtol=1e-3)
+end
+
 @testset "saturation_vapor_pressure" begin
     T0 = FT(273.15)
     es, des_dT = saturation_vapor_pressure(T0)
