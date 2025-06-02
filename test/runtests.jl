@@ -111,3 +111,40 @@ end
     @test flux_zero == 0.0f0
     @test s_face_h ≈ f2h(s_i, s_ip1, p.dx, p.dx)
 end
+
+@testset "compute_limited_flux_z" begin
+    # Create a short vertical column with simple properties
+    p = Params(Nx=1, Nz=4, halo=0, Lx=4.0f0, H=4.0f0, dz0=1.0f0, z_fact=1.0f0,
+               ns=1, tout_int=1.0)
+    rho       = fill(1.0f0, p.Nz, p.Nx)
+    scalar_rho = reshape(Float32.(1:p.Nz), p.Nz, p.Nx)
+    rho_w     = zeros(Float32, p.Nz, p.Nx)
+
+    dt = p.dt
+
+    # --- Upward velocity at bottom boundary ---
+    rho_w[1,1] = 0.5f0
+    f = compute_limited_flux_z(scalar_rho, rho, rho_w, 1, 1, p)
+    s_k   = scalar_rho[1,1] / rho[1,1]
+    s_kp1 = scalar_rho[2,1] / rho[2,1]
+    expect_face = f2h(s_k, s_kp1, p.dz[1], p.dz[2])
+    expect_face = min(expect_face, scalar_rho[1,1] / (rho_w[1,1] * dt))
+    @test f ≈ expect_face * rho_w[1,1]
+
+    # --- Downward velocity near top boundary ---
+    rho_w[3,1] = -0.5f0
+    f = compute_limited_flux_z(scalar_rho, rho, rho_w, 3, 1, p)
+    s_k   = scalar_rho[3,1] / rho[3,1]
+    s_kp1 = scalar_rho[4,1] / rho[4,1]
+    expect_face = f2h(s_k, s_kp1, p.dz[3], p.dz[4])
+    expect_face = min(expect_face, scalar_rho[4,1] / (-rho_w[3,1] * dt))
+    @test f ≈ expect_face * rho_w[3,1]
+
+    # --- Zero velocity interior ---
+    rho_w[2,1] = 0.0f0
+    f = compute_limited_flux_z(scalar_rho, rho, rho_w, 2, 1, p)
+    s_k   = scalar_rho[2,1] / rho[2,1]
+    s_kp1 = scalar_rho[3,1] / rho[3,1]
+    expect_face = f2h(s_k, s_kp1, p.dz[2], p.dz[3])
+    @test f ≈ expect_face * rho_w[2,1]
+end
