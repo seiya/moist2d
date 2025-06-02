@@ -218,6 +218,28 @@ end
     end
 end
 
+@testset "compute_step mass" begin
+    p = Params(Nx=2, Nz=2, Lx=200.0f0, H=210.0f0, dz0=100.0f0,
+                z_fact=1.1f0, ns=1, nu=FT(0.0), kappa=FT(0.0))
+    s = allocate_state(p)
+    fill!(s.rho, FT(1.0))
+    fill!(s.rho_u, FT(0.0))
+    fill!(s.rho_w, FT(0.0))
+    fill!(s.rho_theta, FT(1.0))
+    fill!(s.rho_qv, FT(0.0))
+    fill!(s.rho_qc, FT(0.0))
+    fill!(s.rho_qr, FT(0.0))
+    fill!(s.theta_ref, FT(1.0))
+    mass_before = sum(s.rho[p.ks:p.ke, p.is:p.ie] .* p.dz[p.ks:p.ke])
+    d_phys = fill(FT(0.01), p.ka, p.ia)
+    zeros2d = zeros(FT, p.ka, p.ia)
+    s0 = deepcopy(s)
+    compute_step!(d_phys, zeros2d, zeros2d, zeros2d, zeros2d, zeros2d, s, s0, p, FT(1.0), 1)
+    mass_after = sum(s.rho[p.ks:p.ke, p.is:p.ie] .* p.dz[p.ks:p.ke])
+    expected = mass_before + FT(1.0) * sum(d_phys[p.ks:p.ke, p.is:p.ie] .* p.dz[p.ks:p.ke])
+    @test isapprox(mass_after, expected; atol=1e-4)
+end
+
 @testset "saturation_vapor_pressure" begin
     T0 = FT(273.15)
     es, des_dT = saturation_vapor_pressure(T0)
