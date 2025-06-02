@@ -166,3 +166,80 @@ end
     expect_face = f2h(s_k, s_kp1, p.dz[2], p.dz[3])
     @test f ≈ expect_face * rho_w[2,1]
 end
+
+@testset "implicit_correction" begin
+    # Minimal parameters for a single column with Nz=3
+    p = Params(Nz=3, Nx=1, H=3.0f0, Lx=1.0f0, dz0=1.0f0, z_fact=1.0f0,
+               beta_offcenter=1.0f0)
+
+    # Constant input arrays
+    rho_w = fill(0.1f0, p.ka)
+    drho_w = fill(0.05f0, p.ka)
+    theta = fill(300.0f0, p.ka)
+    rt2pres = fill(1.0f0, p.ka)
+    dt = 0.1f0
+
+    # Save the initial state of rho_w for constructing the system later
+    rho_w_initial = copy(rho_w)
+
+    # Apply the implicit correction
+    implicit_correction!(rho_w, drho_w, theta, rt2pres, dt, p)
+
+    # Rebuild the tridiagonal system using the initial rho_w
+    ks, ke = p.ks, p.ke
+    theta_h = similar(theta)
+    for k in ks:ke-1
+        theta_h[k] = f2h(theta[k], theta[k+1], p.dz[k], p.dz[k+1])
+    end
+
+    fact_tp = 0.5f0 * (1.0f0 + p.beta_offcenter)
+    fact_tm = 0.5f0 * (1.0f0 - p.beta_offcenter)
+    dt_tp2 = (dt * fact_tp)^2
+
+    a = zeros(Float32, p.Nz - 1)
+    b = zeros(Float32, p.Nz - 1)
+    c = zeros(Float32, p.Nz - 1)
+    d = zeros(Float32, p.Nz - 1)
+    for k in ks:ke-1
+        idx = k - ks + 1
+        b[idx] = dt_tp2 * (rt2pres[k] / p.dz[k] + rt2pres[k+1] / p.dz[k+1]) *
+                 theta_h[k] / (p.z[k+1] - p.z[k])
+        if k > ks
+            a[idx] = -dt_tp2 * (rt2pres[k] * theta_h[k-1] /
+                                ((p.z[k+1] - p.z[k]) * p.dz[k]) -
+                                GRAV / (p.dz[k] + p.dz[k+1]))
+        end
+        if k < ke - 1
+            c[idx] = -dt_tp2 * (rt2pres[k+1] * theta_h[k+1] /
+                                ((p.z[k+1] - p.z[k]) * p.dz[k+1]) +
+                                GRAV / (p.dz[k] + p.dz[k+1]))
+        end
+        d[idx] = rho_w_initial[k] + drho_w[k]
+    end
+
+    fact = fact_tm / fact_tp
+    for k in ks:ke-1
+        idx = k - ks + 1
+        if k > ks
+            d[idx] -= a[idx] * fact * rho_w_initial[k]
+        end
+        d[idx] -= b[idx] * fact * rho_w_initial[k]
+        b[idx] += 1.0f0
+        if k < ke - 1
+            d[idx] -= c[idx] * fact * rho_w_initial[k+1]
+        end
+    end
+
+    # Verify that the updated rho_w satisfies A * rho_w = d
+    for k in ks:ke-1
+        idx = k - ks + 1
+        lhs = b[idx] * rho_w[k]
+        if k > ks
+            lhs += a[idx] * rho_w[k-1]
+        end
+        if k < ke - 1
+            lhs += c[idx] * rho_w[k+1]
+        end
+        @test lhs ≈ d[idx] atol=1e-6
+    end
+end
