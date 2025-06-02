@@ -43,3 +43,19 @@ end
     es2, _ = saturation_vapor_pressure(T0 + eps_T)
     @test des_dT ≈ (es2 - es) / eps_T rtol = FT(5e-2)
 end
+
+@testset "saturation_specific_humidity" begin
+    p = 1.0f5
+    T_k = 300.0f0
+    es, _ = saturation_vapor_pressure(T_k)
+    tmp = p - (1.0f0 - EPSvap) * es
+    qsat_ref = EPSvap * es / tmp
+    dqsat_des_ref = EPSvap * p / tmp^2
+    qsat, dqsat_des = saturation_specific_humidity(p, es)
+    @test qsat ≈ qsat_ref
+
+    delta = eps(es)
+    qsat2, _ = saturation_specific_humidity(p, es + delta)
+    dqsat_des_fd = (qsat2 - qsat) / delta
+    @test isapprox(dqsat_des, dqsat_des_fd; atol=2f-6)
+end
