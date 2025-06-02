@@ -240,6 +240,89 @@ end
     @test isapprox(mass_after, expected; atol=1e-4)
 end
 
+@testset "compute_step monotonicity" begin
+    p = Params(Nx=4, Nz=2, Lx=4.0f0, H=2.0f0, dz0=1.0f0,
+                z_fact=1.0f0, ns=1, nu=FT(0.0), kappa=FT(0.0), gamma_d=FT(0.0))
+    s = allocate_state(p)
+    fill!(s.rho, FT(1.0))
+    fill!(s.rho_theta, FT(300.0))
+    fill!(s.rho_w, FT(0.0))
+
+    # Sinusoidal horizontal velocity
+    amp = FT(0.1)
+    base = FT(1.0)
+    for i in p.is:p.ie
+        u = base + amp * sin(4 * pi * (i - p.is) / p.Nx)
+        s.rho_u[p.ks, i] = u * s.rho[p.ks, i]
+    end
+    exchange_halo!(s.rho_u, p)
+
+    # Sinusoidal mixing ratio with small amplitude
+    amp = FT(0.004)
+    base = FT(0.005)
+    for i in p.is:p.ie
+        qv = base + amp * sin(2 * pi * (i - p.is) / p.Nx)
+        s.rho_qv[p.ks, i] = qv * s.rho[p.ks, i]
+    end
+    exchange_halo!(s.rho_qv, p)
+
+    s0 = deepcopy(s)
+    zeros2d = zeros(FT, p.ka, p.ia)
+    dt = p.dt
+    compute_step!(zeros2d, zeros2d, zeros2d, zeros2d, zeros2d, zeros2d,
+                  s, s0, p, dt, 1)
+
+    qv_init = s0.rho_qv[p.ks, p.is:p.ie] ./ s0.rho[p.ks, p.is:p.ie]
+    qv_new = s.rho_qv[p.ks, p.is:p.ie] ./ s.rho[p.ks, p.is:p.ie]
+
+    @test minimum(qv_new) ≥ minimum(qv_init) - FT(2e-6)
+    @test maximum(qv_new) ≤ maximum(qv_init) + FT(2e-6)
+end
+
+@testset "compute_step CwC" begin
+    p = Params(Nx=4, Nz=2, Lx=4.0f0, H=2.0f0, dz0=1.0f0,
+                z_fact=1.0f0, ns=1, nu=FT(0.0), kappa=FT(0.0), gamma_d=FT(0.0))
+    s = allocate_state(p)
+    fill!(s.rho_theta, FT(300.0))
+    fill!(s.rho_w, FT(0.0))
+
+    # Sinusoidal density
+    amp = FT(0.1)
+    base = FT(1.0)
+    for i in p.is:p.ie
+        dens = base + amp * sin(2 * pi * (i - p.is) / p.Nx)
+        s.rho[p.ks, i] = dens
+        s.rho[p.ks+1, i] = dens
+    end
+    exchange_halo!(s.rho, p)
+
+    # Sinusoidal horizontal velocity
+    amp = FT(0.1)
+    base = FT(1.0)
+    for i in p.is:p.ie
+        u = base + amp * sin(4 * pi * (i - p.is) / p.Nx)
+        s.rho_u[p.ks, i] = u * s.rho[p.ks, i]
+    end
+    exchange_halo!(s.rho_u, p)
+
+    qv_const = FT(0.005)
+    for i in p.is:p.ie, k in p.ks:p.ke
+        s.rho_qv[k, i] = qv_const * s.rho[k, i]
+    end
+    exchange_halo!(s.rho_qv, p)
+
+    s0 = deepcopy(s)
+    zeros2d = zeros(FT, p.ka, p.ia)
+    dt = p.dt
+    compute_step!(zeros2d, zeros2d, zeros2d, zeros2d, zeros2d, zeros2d,
+                  s, s0, p, dt, 1)
+
+    qv_new1 = s.rho_qv[p.ks, p.is:p.ie] ./ s.rho[p.ks, p.is:p.ie]
+    qv_new2 = s.rho_qv[p.ks+1, p.is:p.ie] ./ s.rho[p.ks+1, p.is:p.ie]
+    @test all(isapprox.(qv_new1, qv_const, atol=FT(1e-6)))
+    @test all(isapprox.(qv_new2, qv_const, atol=FT(1e-6)))
+end
+
 @testset "rk3_step" begin
     p = Params(Nx=4, Nz=4, H=400.0f0, ns=1)
     rngs = [Random.Xoshiro(i) for i in 1:Threads.nthreads()]
