@@ -1,18 +1,36 @@
 using Test
+
+# Determine precision from command line argument (Float32 or Float64)
+precision = Float32
+if length(ARGS) > 0
+    if ARGS[1] == "Float64"
+        precision = Float64
+    elseif ARGS[1] != "Float32"
+        error("Unsupported precision " * ARGS[1])
+    end
+end
+
 include("../moist.jl")
 
+# Set precision for tests
+set_precision!(precision)
+
+# Helper for tolerances depending on precision
+# When using Float64, the default tolerance scales with 1e-6
+tol(f32, f64=f32 * 1e-6) = FT === Float64 ? FT(f64) : FT(f32)
+
 @testset "f2h" begin
-    @test f2h(1.0f0, 2.0f0, 3.0f0, 4.0f0) ≈ (1.0f0*4.0f0 + 2.0f0*3.0f0) / 7.0f0
+    @test f2h(FT(1.0), FT(2.0), FT(3.0), FT(4.0)) ≈ (FT(1.0)*FT(4.0) + FT(2.0)*FT(3.0)) / FT(7.0)
     # Identity: when both face values are equal the result should be the same
-    @test f2h(5.0f0, 5.0f0, 2.0f0, 7.0f0) ≈ 5.0f0
+    @test f2h(FT(5.0), FT(5.0), FT(2.0), FT(7.0)) ≈ FT(5.0)
     # Nonuniform dz weighting
-    @test f2h(2.0f0, 4.0f0, 1.0f0, 3.0f0) ≈ (2.0f0*3.0f0 + 4.0f0*1.0f0) / 4.0f0
+    @test f2h(FT(2.0), FT(4.0), FT(1.0), FT(3.0)) ≈ (FT(2.0)*FT(3.0) + FT(4.0)*FT(1.0)) / FT(4.0)
     # Symmetry when swapping vf and dz pairs
-    @test f2h(2.0f0, 4.0f0, 1.0f0, 3.0f0) ≈ f2h(4.0f0, 2.0f0, 3.0f0, 1.0f0)
+    @test f2h(FT(2.0), FT(4.0), FT(1.0), FT(3.0)) ≈ f2h(FT(4.0), FT(2.0), FT(3.0), FT(1.0))
 end
 
 @testset "exchange_halo" begin
-    p = Params(; Nx=4, Nz=2, halo=1, H=200.0f0, dz0=100.0f0)
+    p = Params(; Nx=4, Nz=2, halo=1, H=FT(200.0), dz0=FT(100.0))
     A = zeros(FT, p.Nz, p.ia)
     interior_vals = reshape(collect(1:p.Nz * p.Nx), p.Nz, p.Nx)
     A[:, p.is:p.ie] .= interior_vals
@@ -23,12 +41,12 @@ end
 
 @testset "solve_tridiagonal!" begin
     # Coefficients for a simple 3x3 tridiagonal system
-    a = [0.0, -1.0, -1.0]
-    b = [2.0, 2.0, 2.0]
-    c = [-1.0, -1.0, 0.0]
-    d = [1.0, 2.0, 3.0]
+    a = FT[0.0, -1.0, -1.0]
+    b = FT[2.0, 2.0, 2.0]
+    c = FT[-1.0, -1.0, 0.0]
+    d = FT[1.0, 2.0, 3.0]
 
-    expected = [2.5, 4.0, 3.5]
+    expected = FT[2.5, 4.0, 3.5]
 
     ac = copy(a)
     bc = copy(b)
@@ -41,29 +59,29 @@ end
 end
 
 @testset "koren_limiter" begin
-    @test koren_limiter(0.0f0) == 0.0f0
-    @test koren_limiter(1.0f0) == 1.0f0
-    @test koren_limiter(2.0f0) ≈ 5.0f0 / 3.0f0
+    @test koren_limiter(FT(0.0)) == FT(0.0)
+    @test koren_limiter(FT(1.0)) == FT(1.0)
+    @test koren_limiter(FT(2.0)) ≈ FT(5.0) / FT(3.0)
 
-    @test koren_limiter(-1.0f0) == 0.0f0
-    @test koren_limiter(3.0f0) == 2.0f0
+    @test koren_limiter(FT(-1.0)) == FT(0.0)
+    @test koren_limiter(FT(3.0)) == FT(2.0)
 
-    for r in (0.0f0, 1.0f0, 2.0f0)
+    for r in (FT(0.0), FT(1.0), FT(2.0))
         v = koren_limiter(r)
-        @test 0.0f0 <= v <= 2.0f0
+        @test FT(0.0) <= v <= FT(2.0)
     end
 
-    rs = Float32[-1, 0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
+    rs = FT[-1, 0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0]
     phis = koren_limiter.(rs)
-    @test all(diff(phis) .>= 0.0f0)
+    @test all(diff(phis) .>= FT(0.0))
 end
 
 @testset "compute_limited_flux_x" begin
-    p = Params(Float32; Nx=6, Nz=4, H=4.0, dz0=1.0, z_fact=1.0)
+    p = Params(FT; Nx=6, Nz=4, H=FT(4.0), dz0=FT(1.0), z_fact=FT(1.0))
 
-    scalar_rho = zeros(Float32, p.ka, p.ia)
-    rho = ones(Float32, p.ka, p.ia)
-    rho_u = zeros(Float32, p.ka, p.ia)
+    scalar_rho = zeros(FT, p.ka, p.ia)
+    rho = ones(FT, p.ka, p.ia)
+    rho_u = zeros(FT, p.ka, p.ia)
 
     for j in 1:p.ia
         scalar_rho[p.ks, j] = j
@@ -73,49 +91,49 @@ end
     i = p.is + 1
 
     # Positive rho_u -> upwind from left
-    rho_u[k, i] = 1.0f0
+    rho_u[k, i] = FT(1.0)
     flux_pos = compute_limited_flux_x(scalar_rho, rho, rho_u, k, i, p)
     s_im1 = scalar_rho[k, i-1] / rho[k, i-1]
     s_i = scalar_rho[k, i] / rho[k, i]
     s_ip1 = scalar_rho[k, i+1] / rho[k, i+1]
     r_num = s_ip1 - s_i
     r_den = s_i - s_im1
-    r = abs(r_den) < EPS ? 1.0f0 : r_num / r_den
+    r = abs(r_den) < EPS ? FT(1.0) : r_num / r_den
     phi = koren_limiter(r)
-    s_face_exp = s_i + 0.5f0 * phi * r_den
+    s_face_exp = s_i + FT(0.5) * phi * r_den
     @test flux_pos ≈ s_face_exp * rho_u[k, i]
 
     # Negative rho_u -> upwind from right
-    rho_u[k, i] = -1.0f0
+    rho_u[k, i] = -FT(1.0)
     flux_neg = compute_limited_flux_x(scalar_rho, rho, rho_u, k, i, p)
     s_ip2 = scalar_rho[k, i+2] / rho[k, i+2]
     r_num = s_i - s_ip1
     r_den = s_ip1 - s_ip2
-    r = abs(r_den) < EPS ? 1.0f0 : r_num / r_den
+    r = abs(r_den) < EPS ? FT(1.0) : r_num / r_den
     phi = koren_limiter(r)
-    s_face_exp = s_ip1 + 0.5f0 * phi * r_den
+    s_face_exp = s_ip1 + FT(0.5) * phi * r_den
     @test flux_neg ≈ s_face_exp * rho_u[k, i]
 
     # Zero rho_u -> centered interpolation
-    rho_u[k, i] = 0.0f0
+    rho_u[k, i] = FT(0.0)
     flux_zero = compute_limited_flux_x(scalar_rho, rho, rho_u, k, i, p)
-    s_face_h = 0.5f0 * (s_i + s_ip1)
-    @test flux_zero == 0.0f0
+    s_face_h = FT(0.5) * (s_i + s_ip1)
+    @test flux_zero == FT(0.0)
     @test s_face_h ≈ f2h(s_i, s_ip1, p.dx, p.dx)
 end
 
 @testset "compute_limited_flux_z" begin
     # Create a short vertical column with simple properties
-    p = Params(Nx=1, Nz=4, halo=0, Lx=4.0f0, H=4.0f0, dz0=1.0f0, z_fact=1.0f0,
+    p = Params(Nx=1, Nz=4, halo=0, Lx=FT(4.0), H=FT(4.0), dz0=FT(1.0), z_fact=FT(1.0),
                ns=1, tout_int=1.0)
-    rho       = fill(1.0f0, p.Nz, p.Nx)
-    scalar_rho = reshape(Float32.(1:p.Nz), p.Nz, p.Nx)
-    rho_w     = zeros(Float32, p.Nz, p.Nx)
+    rho       = fill(FT(1.0), p.Nz, p.Nx)
+    scalar_rho = reshape(FT.(1:p.Nz), p.Nz, p.Nx)
+    rho_w     = zeros(FT, p.Nz, p.Nx)
 
     dt = p.dt
 
     # --- Upward velocity at bottom boundary ---
-    rho_w[1,1] = 0.5f0
+    rho_w[1,1] = FT(0.5)
     f = compute_limited_flux_z(scalar_rho, rho, rho_w, 1, 1, p)
     s_k   = scalar_rho[1,1] / rho[1,1]
     s_kp1 = scalar_rho[2,1] / rho[2,1]
@@ -124,7 +142,7 @@ end
     @test f ≈ expect_face * rho_w[1,1]
 
     # --- Downward velocity near top boundary ---
-    rho_w[3,1] = -0.5f0
+    rho_w[3,1] = -FT(0.5)
     f = compute_limited_flux_z(scalar_rho, rho, rho_w, 3, 1, p)
     s_k   = scalar_rho[3,1] / rho[3,1]
     s_kp1 = scalar_rho[4,1] / rho[4,1]
@@ -133,7 +151,7 @@ end
     @test f ≈ expect_face * rho_w[3,1]
 
     # --- Zero velocity interior ---
-    rho_w[2,1] = 0.0f0
+    rho_w[2,1] = FT(0.0)
     f = compute_limited_flux_z(scalar_rho, rho, rho_w, 2, 1, p)
     s_k   = scalar_rho[2,1] / rho[2,1]
     s_kp1 = scalar_rho[3,1] / rho[3,1]
@@ -143,15 +161,15 @@ end
 
 @testset "implicit_correction" begin
     # Minimal parameters for a single column with Nz=3
-    p = Params(Nz=3, Nx=1, H=3.0f0, Lx=1.0f0, dz0=1.0f0, z_fact=1.0f0,
-               beta_offcenter=1.0f0)
+    p = Params(Nz=3, Nx=1, H=FT(3.0), Lx=FT(1.0), dz0=FT(1.0), z_fact=FT(1.0),
+               beta_offcenter=FT(1.0))
 
     # Constant input arrays
-    rho_w = fill(0.1f0, p.ka)
-    drho_w = fill(0.05f0, p.ka)
-    theta = fill(300.0f0, p.ka)
-    rt2pres = fill(1.0f0, p.ka)
-    dt = 0.1f0
+    rho_w = fill(FT(0.1), p.ka)
+    drho_w = fill(FT(0.05), p.ka)
+    theta = fill(FT(300.0), p.ka)
+    rt2pres = fill(FT(1.0), p.ka)
+    dt = FT(0.1)
 
     # Save the initial state of rho_w for constructing the system later
     rho_w_initial = copy(rho_w)
@@ -166,14 +184,14 @@ end
         theta_h[k] = f2h(theta[k], theta[k+1], p.dz[k], p.dz[k+1])
     end
 
-    fact_tp = 0.5f0 * (1.0f0 + p.beta_offcenter)
-    fact_tm = 0.5f0 * (1.0f0 - p.beta_offcenter)
+    fact_tp = FT(0.5) * (FT(1.0) + p.beta_offcenter)
+    fact_tm = FT(0.5) * (FT(1.0) - p.beta_offcenter)
     dt_tp2 = (dt * fact_tp)^2
 
-    a = zeros(Float32, p.Nz - 1)
-    b = zeros(Float32, p.Nz - 1)
-    c = zeros(Float32, p.Nz - 1)
-    d = zeros(Float32, p.Nz - 1)
+    a = zeros(FT, p.Nz - 1)
+    b = zeros(FT, p.Nz - 1)
+    c = zeros(FT, p.Nz - 1)
+    d = zeros(FT, p.Nz - 1)
     for k in ks:ke-1
         idx = k - ks + 1
         b[idx] = dt_tp2 * (rt2pres[k] / p.dz[k] + rt2pres[k+1] / p.dz[k+1]) *
@@ -198,7 +216,7 @@ end
             d[idx] -= a[idx] * fact * rho_w_initial[k]
         end
         d[idx] -= b[idx] * fact * rho_w_initial[k]
-        b[idx] += 1.0f0
+        b[idx] += FT(1.0)
         if k < ke - 1
             d[idx] -= c[idx] * fact * rho_w_initial[k+1]
         end
@@ -214,13 +232,13 @@ end
         if k < ke - 1
             lhs += c[idx] * rho_w[k+1]
         end
-        @test lhs ≈ d[idx] atol=1e-6
+        @test lhs ≈ d[idx] atol=tol(1e-6, 1e-12)
     end
 end
 
 @testset "compute_step mass" begin
-    p = Params(Nx=2, Nz=2, Lx=200.0f0, H=210.0f0, dz0=100.0f0,
-                z_fact=1.1f0, ns=1, nu=FT(0.0), kappa=FT(0.0))
+    p = Params(Nx=2, Nz=2, Lx=FT(200.0), H=FT(210.0), dz0=FT(100.0),
+                z_fact=FT(1.1), ns=1, nu=FT(0.0), kappa=FT(0.0))
     s = allocate_state(p)
     fill!(s.rho, FT(1.0))
     fill!(s.rho_u, FT(0.0))
@@ -237,12 +255,12 @@ end
     compute_step!(d_phys, zeros2d, zeros2d, zeros2d, zeros2d, zeros2d, s, s0, p, FT(1.0), 1)
     mass_after = sum(s.rho[p.ks:p.ke, p.is:p.ie] .* p.dz[p.ks:p.ke])
     expected = mass_before + FT(1.0) * sum(d_phys[p.ks:p.ke, p.is:p.ie] .* p.dz[p.ks:p.ke])
-    @test isapprox(mass_after, expected; atol=1e-4)
+    @test isapprox(mass_after, expected; atol=tol(1e-4, 1e-8))
 end
 
 @testset "compute_step monotonicity" begin
-    p = Params(Nx=4, Nz=2, Lx=4.0f0, H=2.0f0, dz0=1.0f0,
-                z_fact=1.0f0, ns=1, nu=FT(0.0), kappa=FT(0.0), gamma_d=FT(0.0))
+    p = Params(Nx=4, Nz=2, Lx=FT(4.0), H=FT(2.0), dz0=FT(1.0),
+                z_fact=FT(1.0), ns=1, nu=FT(0.0), kappa=FT(0.0), gamma_d=FT(0.0))
     s = allocate_state(p)
     fill!(s.rho, FT(1.0))
     fill!(s.rho_theta, FT(300.0))
@@ -275,13 +293,13 @@ end
     qv_init = s0.rho_qv[p.ks, p.is:p.ie] ./ s0.rho[p.ks, p.is:p.ie]
     qv_new = s.rho_qv[p.ks, p.is:p.ie] ./ s.rho[p.ks, p.is:p.ie]
 
-    @test minimum(qv_new) ≥ minimum(qv_init) - FT(2e-6)
-    @test maximum(qv_new) ≤ maximum(qv_init) + FT(2e-6)
+    @test minimum(qv_new) ≥ minimum(qv_init) - tol(2e-6, 2e-6)
+    @test maximum(qv_new) ≤ maximum(qv_init) + tol(2e-6, 2e-6)
 end
 
 @testset "compute_step CwC" begin
-    p = Params(Nx=4, Nz=2, Lx=4.0f0, H=2.0f0, dz0=1.0f0,
-                z_fact=1.0f0, ns=1, nu=FT(0.0), kappa=FT(0.0), gamma_d=FT(0.0))
+    p = Params(Nx=4, Nz=2, Lx=FT(4.0), H=FT(2.0), dz0=FT(1.0),
+                z_fact=FT(1.0), ns=1, nu=FT(0.0), kappa=FT(0.0), gamma_d=FT(0.0))
     s = allocate_state(p)
     fill!(s.rho_theta, FT(300.0))
     fill!(s.rho_w, FT(0.0))
@@ -319,12 +337,12 @@ end
 
     qv_new1 = s.rho_qv[p.ks, p.is:p.ie] ./ s.rho[p.ks, p.is:p.ie]
     qv_new2 = s.rho_qv[p.ks+1, p.is:p.ie] ./ s.rho[p.ks+1, p.is:p.ie]
-    @test all(isapprox.(qv_new1, qv_const, atol=FT(1e-6)))
-    @test all(isapprox.(qv_new2, qv_const, atol=FT(1e-6)))
+    @test all(isapprox.(qv_new1, qv_const, atol=tol(1e-6, 1e-6)))
+    @test all(isapprox.(qv_new2, qv_const, atol=tol(1e-6, 1e-6)))
 end
 
 @testset "rk3_step" begin
-    p = Params(Nx=4, Nz=4, H=400.0f0, ns=1)
+    p = Params(Nx=4, Nz=4, H=FT(400.0), ns=1)
     rngs = [Random.Xoshiro(i) for i in 1:Threads.nthreads()]
     s_init = init_state!(allocate_state(p), p, rngs)
 
@@ -348,24 +366,24 @@ end
                     all(isfinite, s_rk3.rho_qc) &&
                     all(isfinite, s_rk3.rho_qr)
     @test arrays_finite
-    @test isapprox(mass_rk3, mass_pred; atol=1e-3, rtol=1e-3)
+    @test isapprox(mass_rk3, mass_pred; atol=tol(1e-3, 1e-6), rtol=tol(1e-3, 1e-6))
 end
 
 @testset "saturation_vapor_pressure" begin
     T0 = FT(273.15)
     es, des_dT = saturation_vapor_pressure(T0)
-    @test es ≈ ES0 atol = FT(1e-3)
+    @test es ≈ ES0 atol = tol(1e-3, 1e-6)
 
     eps_T = eps(T0)
     es2, _ = saturation_vapor_pressure(T0 + eps_T)
-    @test des_dT ≈ (es2 - es) / eps_T rtol = FT(5e-2)
+    @test des_dT ≈ (es2 - es) / eps_T rtol = tol(5e-2, 5e-2)
 end
 
 @testset "saturation_specific_humidity" begin
-    p = 1.0f5
-    T_k = 300.0f0
+    p = FT(1e5)
+    T_k = FT(300.0)
     es, _ = saturation_vapor_pressure(T_k)
-    tmp = p - (1.0f0 - EPSvap) * es
+    tmp = p - (FT(1.0) - EPSvap) * es
     qsat_ref = EPSvap * es / tmp
     dqsat_des_ref = EPSvap * p / tmp^2
     qsat, dqsat_des = saturation_specific_humidity(p, es)
@@ -374,7 +392,7 @@ end
     delta = eps(es)
     qsat2, _ = saturation_specific_humidity(p, es + delta)
     dqsat_des_fd = (qsat2 - qsat) / delta
-    @test isapprox(dqsat_des, dqsat_des_fd; atol=2f-6)
+    @test isapprox(dqsat_des, dqsat_des_fd; atol=tol(2e-6, 2e-6))
 end
 
 @testset "invert_T_for_thetae" begin
@@ -390,21 +408,21 @@ end
     cp = Cpd * qd + Cpl * qt
     p_d = P0 - es
     theta_e_ref = T_est * (p_d / P0)^(-Rd / cp) * exp(Lv * qsat_ref / (cp * T_est))
-    @test theta_e_ref ≈ theta_e atol=FT(1e-3)
+    @test theta_e_ref ≈ theta_e atol=tol(1e-3, 1e-6)
 end
 
 @testset "cloud_microphysics conservation" begin
-    p = Params{Float32}(; Nx=1, Nz=3, halo=0, dt=1.0f0)
-    rho = fill(1.0f0, p.ka, p.ia)
-    rho_theta = fill(300.0f0, p.ka, p.ia)
-    rho_qv = fill(0.025f0, p.ka, p.ia)
-    rho_qc = fill(0.0f0, p.ka, p.ia)
-    rho_qr = fill(0.0f0, p.ka, p.ia)
+    p = Params{FT}(; Nx=1, Nz=3, halo=0, dt=FT(1.0))
+    rho = fill(FT(1.0), p.ka, p.ia)
+    rho_theta = fill(FT(300.0), p.ka, p.ia)
+    rho_qv = fill(FT(0.025), p.ka, p.ia)
+    rho_qc = fill(FT(0.0), p.ka, p.ia)
+    rho_qr = fill(FT(0.0), p.ka, p.ia)
 
-    d_qv = zeros(Float32, p.ka, p.ia)
-    d_qc = zeros(Float32, p.ka, p.ia)
-    d_qr = zeros(Float32, p.ka, p.ia)
-    d_theta = zeros(Float32, p.ka, p.ia)
+    d_qv = zeros(FT, p.ka, p.ia)
+    d_qc = zeros(FT, p.ka, p.ia)
+    d_qr = zeros(FT, p.ka, p.ia)
+    d_theta = zeros(FT, p.ka, p.ia)
 
     cloud_microphysics!(d_qv, d_qc, d_qr, d_theta,
         rho, rho_theta, rho_qv, rho_qc, rho_qr, p)
@@ -416,6 +434,6 @@ end
     mass_before = rho_qv .+ rho_qc .+ rho_qr
     mass_after = rho_qv_new .+ rho_qc_new .+ rho_qr_new
 
-    @test all(isapprox.(mass_after, mass_before; atol=1e-6))
+    @test all(isapprox.(mass_after, mass_before; atol=tol(1e-6, 1e-12)))
     @test all(rho_qv_new .>= 0) && all(rho_qc_new .>= 0) && all(rho_qr_new .>= 0)
 end
