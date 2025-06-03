@@ -1,6 +1,0 @@
-[deps]
-LoopVectorization = "bdcacae8-bdee-11e8-abc2-f30e1b3014d5"
-NCDatasets = "85a47980-1005-43f5-8004-0a2b9e5078c7"
-Parameters = "d96e819e-233e-5a43-8a1f-62d0d9b1caaa"
-MPI = "d1bd81bf-4b4a-5dfc-86a2-aa54b3badeba"
-
