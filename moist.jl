@@ -10,42 +10,49 @@ using NCDatasets
 using Parameters
 using Random
 
-const FT = Float32
-#const FT = Float64
+FT = Float32
+#FT = Float64
 
-# ============================================================
-# 0. Physical Constants
-# ============================================================
-const GRAV = FT(9.81)     # Acceleration due to gravity (m/s^2)
-const Rd = FT(287.04)     # Gas constant for dry air (J/kg/K)
-const Rv = FT(461.5)      # Gas constant for water vapor (J/kg/K)
-const Cpd = FT(1004.64)   # Specific heat of dry air at constant pressure (J/kg/K)
-const Cpv = FT(1846.0)    # Specific heat of water vapor at constant pressure (J/kg/K)
-const Cpl = FT(4218.0)    # Specific heat of liquid water
-const Cvd = Cpd - Rd        # Specific heat of dry air at constant volume (J/kg/K)
-const P0 = FT(1.e5)       # Reference pressure (Pa)
-const Lv = FT(2.501e6)      # Latent heat of vaporization (J/kg)
-const Ka = FT(0.4)        # Kalman constant
-const SIGMA = FT(5.67e-8) # Stefan-Boltzmann constant (W/m^2/K^4)
+function set_precision!(T::Type{<:AbstractFloat})
+    global FT = T
 
-const EPSvap = Rd / Rv
-const EPSTvap = Rv / Rd - FT(1.0)
+    # ============================================================
+    # 0. Physical Constants
+    # ============================================================
+    global GRAV = T(9.81)      # Acceleration due to gravity (m/s^2)
+    global Rd = T(287.04)      # Gas constant for dry air (J/kg/K)
+    global Rv = T(461.5)       # Gas constant for water vapor (J/kg/K)
+    global Cpd = T(1004.64)    # Specific heat of dry air at constant pressure (J/kg/K)
+    global Cpv = T(1846.0)     # Specific heat of water vapor at constant pressure (J/kg/K)
+    global Cpl = T(4218.0)     # Specific heat of liquid water
+    global Cvd = Cpd - Rd      # Specific heat of dry air at constant volume (J/kg/K)
+    global P0 = T(1e5)         # Reference pressure (Pa)
+    global Lv = T(2.501e6)     # Latent heat of vaporization (J/kg)
+    global Ka = T(0.4)         # Kalman constant
+    global SIGMA = T(5.67e-8)  # Stefan-Boltzmann constant (W/m^2/K^4)
 
-# --- Kessler Microphysics Parameters ---
-const K_auto = FT(1e-3)   # Autoconversion rate coefficient (s^-1)
-const Qc_threshold = FT(1e-3) # Autoconversion threshold (kg/kg)
-const K_accr = FT(2.2)    # Accretion rate coefficient (m^3/kg/s adjusted for typical rho_air)
-const K_evap = FT(1e-2)   # Rain evaporation rate coefficient (-) - Needs tuning
-const A_term = FT(36.3)   # Terminal velocity coefficient (m/s * (m^3/kg)^-0.1346) - Marshall-Palmer
-const B_term = FT(0.1346) # Terminal velocity exponent (-) - Marshall-Palmer
+    global EPSvap = Rd / Rv
+    global EPSTvap = Rv / Rd - T(1.0)
 
-# --- Saturation Vapor Pressure Calculation (Tetens' formula) ---
-const T0 = FT(273.15)     # Reference temperature (K)
-const ES0 = FT(610.78)     # Saturation vapor pressure at T0 (Pa)
-const A_SAT = FT(17.67)   # Coefficient for saturation vapor pressure
-const B_SAT = FT(243.5)   # Coefficient for saturation vapor pressure (deg C)
+    # --- Kessler Microphysics Parameters ---
+    global K_auto = T(1e-3)      # Autoconversion rate coefficient (s^-1)
+    global Qc_threshold = T(1e-3) # Autoconversion threshold (kg/kg)
+    global K_accr = T(2.2)       # Accretion rate coefficient (m^3/kg/s adjusted for typical rho_air)
+    global K_evap = T(1e-2)      # Rain evaporation rate coefficient (-) - Needs tuning
+    global A_term = T(36.3)      # Terminal velocity coefficient (m/s * (m^3/kg)^-0.1346) - Marshall-Palmer
+    global B_term = T(0.1346)    # Terminal velocity exponent (-) - Marshall-Palmer
 
-const EPS = FT(1e-12) # Small value to avoid division by zero
+    # --- Saturation Vapor Pressure Calculation (Tetens' formula) ---
+    global T0 = T(273.15)     # Reference temperature (K)
+    global ES0 = T(610.78)    # Saturation vapor pressure at T0 (Pa)
+    global A_SAT = T(17.67)   # Coefficient for saturation vapor pressure
+    global B_SAT = T(243.5)   # Coefficient for saturation vapor pressure (deg C)
+
+    global EPS = T(1e-12)     # Small value to avoid division by zero
+    return FT
+end
+
+set_precision!(FT)
 
 # ============================================================
 # 1. Grid & parameters
@@ -89,12 +96,12 @@ const EPS = FT(1e-12) # Small value to avoid division by zero
     zf_sponge::T = T(0.0)
     #do_mp = true # Cloud microphysics
     do_mp = false
-    #do_auto = true # Autoconversion
-    do_auto = false
-    #do_accr = true # Accretion
-    do_accr = false
-    #do_revap = true # Rain evaporation
-    do_revap = false
+    do_auto = true # Autoconversion
+    #do_auto = false
+    do_accr = true # Accretion
+    #do_accr = false
+    do_revap = true # Rain evaporation
+    #do_revap = false
     #do_sed = true # Rain sedimentation
     do_sed = false
     #do_rd = true # Radiation
