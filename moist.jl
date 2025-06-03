@@ -193,7 +193,7 @@ function Params(T=FT; kwargs...)
         z[k] = (zf[k-1] + zf[k]) * FT(0.5)
     end
     if zf[p_initial.ke] < p_initial.H
-        error("z_fact is too small: $(p_initial.z_fact), $(zf[p.ke]) < $(p_initial.H)")
+        error("z_fact is too small: $(p_initial.z_fact), $(zf[p_initial.ke]) < $(p_initial.H)")
     end
 
     # Create a new Params instance with calculated values
@@ -811,7 +811,7 @@ function gray_radiation!(d_rho_theta_rd, rho, rho_theta, rho_qv, rho_qc, rho_qr,
             divF = ((LW_up[k+1, i] - LW_dn[k+1, i]) - (LW_up[k, i] - LW_dn[k, i])) / p.dz[k]
             hr = - divF / (cp[k, i] * pi_exner[k, i])
             # Newtonian cooling in stratosphere
-            alpha = T(0.5) * (T(1.0) + tanh((z[k] - (z_tropopose + dz_trans * T(0.5)))/ dz_trans)) / tau_cooling # (1/s)
+            alpha = T(0.5) * (T(1.0) + tanh((p.z[k] - (z_tropopose + dz_trans * T(0.5)))/ dz_trans)) / tau_cooling # (1/s)
             cr = - (rho_theta[k, i]  - rho[k, i] * theta_ref[k]) * alpha
             # Total tendency
             d_rho_theta_rd[k, i] = hr + cr
