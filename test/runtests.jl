@@ -392,3 +392,30 @@ end
     theta_e_ref = T_est * (p_d / P0)^(-Rd / cp) * exp(Lv * qsat_ref / (cp * T_est))
     @test theta_e_ref ≈ theta_e atol=FT(1e-3)
 end
+
+@testset "cloud_microphysics conservation" begin
+    p = Params{Float32}(; Nx=1, Nz=3, halo=0, dt=1.0f0)
+    rho = fill(1.0f0, p.ka, p.ia)
+    rho_theta = fill(300.0f0, p.ka, p.ia)
+    rho_qv = fill(0.025f0, p.ka, p.ia)
+    rho_qc = fill(0.0f0, p.ka, p.ia)
+    rho_qr = fill(0.0f0, p.ka, p.ia)
+
+    d_qv = zeros(Float32, p.ka, p.ia)
+    d_qc = zeros(Float32, p.ka, p.ia)
+    d_qr = zeros(Float32, p.ka, p.ia)
+    d_theta = zeros(Float32, p.ka, p.ia)
+
+    cloud_microphysics!(d_qv, d_qc, d_qr, d_theta,
+        rho, rho_theta, rho_qv, rho_qc, rho_qr, p)
+
+    rho_qv_new = rho_qv .+ d_qv .* p.dt
+    rho_qc_new = rho_qc .+ d_qc .* p.dt
+    rho_qr_new = rho_qr .+ d_qr .* p.dt
+
+    mass_before = rho_qv .+ rho_qc .+ rho_qr
+    mass_after = rho_qv_new .+ rho_qc_new .+ rho_qr_new
+
+    @test all(isapprox.(mass_after, mass_before; atol=1e-6))
+    @test all(rho_qv_new .>= 0) && all(rho_qc_new .>= 0) && all(rho_qr_new .>= 0)
+end
