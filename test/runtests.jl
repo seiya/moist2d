@@ -232,7 +232,7 @@ end
         if k < ke - 1
             lhs += c[idx] * rho_w[k+1]
         end
-        @test lhs ≈ d[idx] atol=tol(1e-6, 1e-12)
+        @test lhs ≈ d[idx] atol=tol(1e-6)
     end
 end
 
@@ -255,7 +255,7 @@ end
     compute_step!(d_phys, zeros2d, zeros2d, zeros2d, zeros2d, zeros2d, s, s0, p, FT(1.0), 1)
     mass_after = sum(s.rho[p.ks:p.ke, p.is:p.ie] .* p.dz[p.ks:p.ke])
     expected = mass_before + FT(1.0) * sum(d_phys[p.ks:p.ke, p.is:p.ie] .* p.dz[p.ks:p.ke])
-    @test isapprox(mass_after, expected; atol=tol(1e-4, 1e-8))
+    @test isapprox(mass_after, expected; atol=tol(1e-6))
 end
 
 @testset "compute_step monotonicity" begin
@@ -293,7 +293,7 @@ end
     qv_init = s0.rho_qv[p.ks, p.is:p.ie] ./ s0.rho[p.ks, p.is:p.ie]
     qv_new = s.rho_qv[p.ks, p.is:p.ie] ./ s.rho[p.ks, p.is:p.ie]
 
-    @test minimum(qv_new) ≥ minimum(qv_init) - tol(2e-6, 2e-6)
+    @test minimum(qv_new) ≥ minimum(qv_init) - tol(1e-6)
     @test maximum(qv_new) ≤ maximum(qv_init) + tol(2e-6, 2e-6)
 end
 
@@ -310,6 +310,7 @@ end
     for i in p.is:p.ie
         dens = base + amp * sin(2 * pi * (i - p.is) / p.Nx)
         s.rho[p.ks, i] = dens
+        dens = base + amp * sin(4 * pi * (i - p.is) / p.Nx)
         s.rho[p.ks+1, i] = dens
     end
     exchange_halo!(s.rho, p)
@@ -320,6 +321,7 @@ end
     for i in p.is:p.ie
         u = base + amp * sin(4 * pi * (i - p.is) / p.Nx)
         s.rho_u[p.ks, i] = u * s.rho[p.ks, i]
+        s.rho_u[p.ks+1, i] = u * s.rho[p.ks+1, i]
     end
     exchange_halo!(s.rho_u, p)
 
@@ -337,8 +339,8 @@ end
 
     qv_new1 = s.rho_qv[p.ks, p.is:p.ie] ./ s.rho[p.ks, p.is:p.ie]
     qv_new2 = s.rho_qv[p.ks+1, p.is:p.ie] ./ s.rho[p.ks+1, p.is:p.ie]
-    @test all(isapprox.(qv_new1, qv_const, atol=tol(1e-6, 1e-6)))
-    @test all(isapprox.(qv_new2, qv_const, atol=tol(1e-6, 1e-6)))
+    @test maximum( abs.(qv_new1 .- qv_const) ) / qv_const <= tol(1e-6, 5e-7)
+    @test maximum( abs.(qv_new2 .- qv_const) ) / qv_const <= tol(1e-6, 5e-7)
 end
 
 @testset "rk3_step" begin
@@ -366,17 +368,17 @@ end
                     all(isfinite, s_rk3.rho_qc) &&
                     all(isfinite, s_rk3.rho_qr)
     @test arrays_finite
-    @test isapprox(mass_rk3, mass_pred; atol=tol(1e-3, 1e-6), rtol=tol(1e-3, 1e-6))
+    @test isapprox(mass_rk3, mass_pred; atol=tol(1e-6), rtol=tol(1e-6))
 end
 
 @testset "saturation_vapor_pressure" begin
     T0 = FT(273.15)
     es, des_dT = saturation_vapor_pressure(T0)
-    @test es ≈ ES0 atol = tol(1e-3, 1e-6)
+    @test es ≈ ES0 atol = tol(1e-6)
 
-    eps_T = eps(T0)
+    eps_T = sqrt(eps(T0))
     es2, _ = saturation_vapor_pressure(T0 + eps_T)
-    @test des_dT ≈ (es2 - es) / eps_T rtol = tol(5e-2, 5e-2)
+    @test des_dT ≈ (es2 - es) / eps_T rtol = tol(2e-4, 2e-8)
 end
 
 @testset "saturation_specific_humidity" begin
@@ -389,10 +391,10 @@ end
     qsat, dqsat_des = saturation_specific_humidity(p, es)
     @test qsat ≈ qsat_ref
 
-    delta = eps(es)
+    delta = sqrt(eps(es))
     qsat2, _ = saturation_specific_humidity(p, es + delta)
     dqsat_des_fd = (qsat2 - qsat) / delta
-    @test isapprox(dqsat_des, dqsat_des_fd; atol=tol(2e-6, 2e-6))
+    @test dqsat_des ≈ dqsat_des_fd atol=tol(1e-6, 1e-11)
 end
 
 @testset "invert_T_for_thetae" begin
@@ -408,7 +410,7 @@ end
     cp = Cpd * qd + Cpl * qt
     p_d = P0 - es
     theta_e_ref = T_est * (p_d / P0)^(-Rd / cp) * exp(Lv * qsat_ref / (cp * T_est))
-    @test theta_e_ref ≈ theta_e atol=tol(1e-3, 1e-6)
+    @test theta_e_ref ≈ theta_e atol=tol(1e-4, 1e-7)
 end
 
 @testset "cloud_microphysics conservation" begin
@@ -434,6 +436,6 @@ end
     mass_before = rho_qv .+ rho_qc .+ rho_qr
     mass_after = rho_qv_new .+ rho_qc_new .+ rho_qr_new
 
-    @test all(isapprox.(mass_after, mass_before; atol=tol(1e-6, 1e-12)))
+    @test maximum( abs.(mass_after .- mass_before) ) < tol(1e-10)
     @test all(rho_qv_new .>= 0) && all(rho_qc_new .>= 0) && all(rho_qr_new .>= 0)
 end
