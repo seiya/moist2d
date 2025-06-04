@@ -714,7 +714,7 @@ function surface_fluxes!(d_rho_u_sf, d_rho_theta_sf, d_rho_qv_sf, mflux, shflux,
         # Surface variables
         theta_ks = rho_theta[ks, i] / rho[ks, i] # Potential temperature at ks
         pi_ks = (r * rho_theta[ks, i] / P0)^(r / cv) # Exner function at ks
-        pi_surf = pi_ks + dz[ks] * T(0.5) * GRAV / (cp * theta_ks) # Exner function at surface
+        pi_surf = pi_ks + p.dz[ks] * T(0.5) * GRAV / (cp * theta_ks) # Exner function at surface
         p_surf = P0 * pi_surf^(cp / r) # Pressure at surface
         rho_surf = p_surf / (r * temp_surf) # Density at surface
         theta_surf = temp_surf / pi_surf # Potential temperature at surface
