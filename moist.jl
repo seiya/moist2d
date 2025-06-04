@@ -10,12 +10,20 @@ using NCDatasets
 using Parameters
 using Random
 
-FT = Float32
-#FT = Float64
+# get Arguments
+if length(ARGS) > 0
+    file_restart = ARGS[1]
+    restart = true
+else
+    restart = false
+end
+
 
 function set_precision!(T::Type{<:AbstractFloat})
     global FT = T
+end
 
+function set_constants!(T=FT)
     # ============================================================
     # 0. Physical Constants
     # ============================================================
@@ -49,19 +57,21 @@ function set_precision!(T::Type{<:AbstractFloat})
     global B_SAT = T(243.5)   # Coefficient for saturation vapor pressure (deg C)
 
     global EPS = T(1e-12)     # Small value to avoid division by zero
-    return FT
 end
 
-set_precision!(FT)
+set_precision!(Float32)
+
+# Set constants
+set_constants!(FT)
 
 # ============================================================
 # 1. Grid & parameters
 # ============================================================
 @with_kw struct Params{T}
-    Lx::T = FT(160e3)    # domain length (m)
-    H::T = FT(25e3)     # domain height (m)
-    #Lx::T = FT(20e3)    # domain length (m)
-    #H::T = FT(10e3)     # domain height (m)
+    Lx::T = T(160e3)    # domain length (m)
+    H::T = T(25e3)     # domain height (m)
+    #Lx::T = T(20e3)    # domain length (m)
+    #H::T = T(10e3)     # domain height (m)
     Nx::Int = 640
     #Nz::Int = 128       # active cells in x, z
     Nz::Int = 250
@@ -155,6 +165,7 @@ set_precision!(FT)
     #tout_int::Float64 = 5.0
     #tout_int::Float64 = 1.0
     #tout_int::Float64 = 0.5
+    #tout_int::Float64 = 1.3215859030837005
     ns::Int = 3                   # Number of short steps
     #ns::Int = 1
     dt::T = T(0.0)               # time step (s) - Calculated below
@@ -217,7 +228,7 @@ end
 device(x) = x # Force CPU for now
 
 # ============================================================
-# 3. Halo exchange for periodic BC
+# 3. Helper functions
 # ============================================================
 function exchange_halo!(A, p::Params)
     # x-direction periodic
@@ -227,6 +238,54 @@ function exchange_halo!(A, p::Params)
         # Copy left interior cells to right halo
         A[:, (p.ie+1):(p.ie+p.halo)] .= A[:, p.is:(p.is+p.halo-1)]
     end
+end
+
+@inline function f2h(vf1, vf2, dz1, dz2)
+    # Weighted interpolation from face values `vf1`, `vf2` to the cell center.
+    # The original implementation was missing parentheses which effectively
+    # computed `vf1 * dz2 + (vf2 * dz1) / (dz1 + dz2)`. This returned
+    # inaccurate results and broke conservation properties.  Correct formula is
+    # `(vf1 * dz2 + vf2 * dz1) / (dz1 + dz2)`.
+    vh = (vf1 * dz2 + vf2 * dz1) / (dz1 + dz2)
+    return vh
+end
+
+# Helper function for saturation vapor pressure
+@inline function saturation_vapor_pressure(T_k::T) where {T}
+    T_c = T_k - T0
+    tmp = B_SAT + T_c
+    es = ES0 * exp(A_SAT * T_c / tmp)
+    des_dT = es * A_SAT * (tmp - T_c) / tmp^2
+    return es, des_dT
+end
+
+# Helper function for saturation specific humidity
+@inline function saturation_specific_humidity(p::T, es::T) where {T}
+    tmp = p - (T(1.0) - EPSvap) * es
+    if tmp > EPS
+        qsat = EPSvap * es / tmp
+        dqsat_des = EPSvap * p / tmp^2
+    else
+        qsat = T(0.0)
+        dqsat_des = T(1.0)
+    end
+    return qsat, dqsat_des
+end
+
+function invert_T_for_thetae(qt::T, theta_e::T, p_k::T) where {T}
+    T_low, T_high = T(250.0), T(350.0)
+    local qsat
+    for iter in 1:30
+        t_mid = (T_low + T_high) / 2
+        es, _ = saturation_vapor_pressure(t_mid)
+        qsat, _ = saturation_specific_humidity(p_k, es)
+        p_d = p_k - es
+        qd = T(1.0) - qt
+        cp = Cpd * qd + Cpl * qt
+        theta_mid = t_mid * (p_d / P0)^(-Rd / cp) * exp(Lv * qsat / (cp * t_mid))
+        theta_mid > theta_e ? (T_high = t_mid) : (T_low = t_mid)
+    end
+    return (T_low + T_high) / 2, qsat
 end
 
 # ============================================================
@@ -288,38 +347,6 @@ end
 # ============================================================
 # 5. Initialize interior and exchange halos
 # ============================================================
-
-# Helper function for saturation vapor pressure
-@inline function saturation_vapor_pressure(T_k::T) where {T}
-    T_c = T_k - T0
-    tmp = B_SAT + T_c
-    es = ES0 * exp(A_SAT * T_c / tmp)
-    des_dT = es * A_SAT * (tmp - T_c) / tmp^2
-    return es, des_dT
-end
-
-# Helper function for saturation specific humidity
-@inline function saturation_specific_humidity(p::T, es::T) where {T}
-    tmp = p - (T(1.0) - EPSvap) * es
-    if tmp > EPS
-        qsat = EPSvap * es / tmp
-        dqsat_des = EPSvap * p / tmp^2
-    else
-        qsat = T(0.0)
-        dqsat_des = T(1.0)
-    end
-    return qsat, dqsat_des
-end
-
-@inline function f2h(vf1, vf2, dz1, dz2)
-    # Weighted interpolation from face values `vf1`, `vf2` to the cell center.
-    # The original implementation was missing parentheses which effectively
-    # computed `vf1 * dz2 + (vf2 * dz1) / (dz1 + dz2)`. This returned
-    # inaccurate results and broke conservation properties.  Correct formula is
-    # `(vf1 * dz2 + vf2 * dz1) / (dz1 + dz2)`.
-    vh = (vf1 * dz2 + vf2 * dz1) / (dz1 + dz2)
-    return vh
-end
 
 function init_state!(s::State, p::Params{T}, rngs::Vector{<:AbstractRNG}) where {T}
     @unpack is, ie, ka, ks, ke, Lx, H, dx, z = p
@@ -420,22 +447,6 @@ function init_state!(s::State, p::Params{T}, rngs::Vector{<:AbstractRNG}) where 
     end
 
     return s
-end
-
-function invert_T_for_thetae(qt::T, theta_e::T, p_k::T) where {T}
-    T_low, T_high = T(250.0), T(350.0)
-    local qsat
-    for iter in 1:30
-        t_mid = (T_low + T_high) / 2
-        es, _ = saturation_vapor_pressure(t_mid)
-        qsat, _ = saturation_specific_humidity(p_k, es)
-        p_d = p_k - es
-        qd = T(1.0) - qt
-        cp = Cpd * qd + Cpl * qt
-        theta_mid = t_mid * (p_d / P0)^(-Rd / cp) * exp(Lv * qsat / (cp * t_mid))
-        theta_mid > theta_e ? (T_high = t_mid) : (T_low = t_mid)
-    end
-    return (T_low + T_high) / 2, qsat
 end
 
 # Bryan and Fritsch (2002) Moist experiment
@@ -1701,6 +1712,85 @@ end
     var_d_rho_theta_rd
 end
 
+function init_history(nc_filename, p::Params{T}) where {T}
+
+    isfile(nc_filename) && rm(nc_filename) # Remove existing file
+    nc = NCDataset(nc_filename, "c")
+    defDim(nc, "x", p.Nx)
+    defDim(nc, "z", p.Nz)
+    defDim(nc, "time", Inf)
+    var_x = defVar(nc, "x", T, ("x",))
+    var_z = defVar(nc, "z", T, ("z",))
+    var_zf = defVar(nc, "zf", T, ("z",))
+    hist = History(
+        var_time = defVar(nc, "time", T, ("time",)),
+        var_rho = defVar(nc, "rho", T, ("x", "z", "time")),
+        var_rhou = defVar(nc, "rhou", T, ("x", "z", "time")),
+        var_rhow = defVar(nc, "rhow", T, ("x", "z", "time")),
+        var_u = defVar(nc, "u", T, ("x", "z", "time")), # velocity u
+        var_w = defVar(nc, "w", T, ("x", "z", "time")), # velocity w
+        var_theta = defVar(nc, "theta", T, ("x", "z", "time")), # theta
+        var_qv = defVar(nc, "qv", T, ("x", "z", "time")), # qv
+        var_qc = defVar(nc, "qc", T, ("x", "z", "time")), # qc
+        var_qr = defVar(nc, "qr", T, ("x", "z", "time")), # qr
+        var_RH = defVar(nc, "RH", T, ("x", "z", "time")), # Relative Humidity
+        var_temp = defVar(nc, "temp", T, ("x", "z", "time")), # temperature
+        var_pres = defVar(nc, "pres", T, ("x", "z", "time")), # pressure
+        var_thetae = defVar(nc, "thetae", T, ("x", "z", "time")), # equivalent potential temperature
+        var_prec = defVar(nc, "prec", T, ("x", "time")), # precipitation
+        var_mflux = defVar(nc, "mflux", T, ("x", "time")), # mass flux
+        var_shflux = defVar(nc, "shflux", T, ("x", "time")), # sensible heat flux
+        var_lhflux = defVar(nc, "lhflux", T, ("x", "time")), # latent heat flux
+        var_d_rho_theta_mp = defVar(nc, "d_rho_theta_mp", T, ("x", "z", "time")), # d_rho_theta_mp
+        var_d_rho_qv_mp = defVar(nc, "d_rho_qv_mp", T, ("x", "z", "time")), # d_rho_qv_mp
+        var_d_rho_qc_mp = defVar(nc, "d_rho_qc_mp", T, ("x", "z", "time")), # d_rho_qc_mp
+        var_d_rho_qr_mp = defVar(nc, "d_rho_qr_mp", T, ("x", "z", "time")), # d_rho_qr_mp
+        var_d_rho_qr_sed = defVar(nc, "d_rho_qr_sed", T, ("x", "z", "time")), # d_rho_qr_sed
+        var_d_rho_u_sf = defVar(nc, "d_rho_u_sf", T, ("x", "time")), # d_rho_u_sf
+        var_d_rho_theta_sf = defVar(nc, "d_rho_theta_sf", T, ("x", "time")), # d_rho_theta_sf
+        var_d_rho_qv_sf = defVar(nc, "d_rho_qv_sf", T, ("x", "time")), # d_rho_qv_sf
+        var_d_rho_theta_rd = defVar(nc, "d_rho_theta_rd", T, ("x", "z", "time")) # d_rho_theta_rd
+    )
+
+    # Add attributes (units)
+    var_x.attrib["units"] = "m"
+    var_z.attrib["units"] = "m"
+    var_zf.attrib["units"] = "m"
+    hist.var_time.attrib["units"] = "s"
+    hist.var_rho.attrib["units"] = "kg/m^3"
+    hist.var_rhou.attrib["units"] = "kg/m^2/s"
+    hist.var_rhow.attrib["units"] = "kg/m^2/s"
+    hist.var_u.attrib["units"] = "m/s"
+    hist.var_w.attrib["units"] = "m/s"
+    hist.var_theta.attrib["units"] = "K"
+    hist.var_qv.attrib["units"] = "kg/kg"
+    hist.var_qc.attrib["units"] = "kg/kg"
+    hist.var_qr.attrib["units"] = "kg/kg"
+    hist.var_RH.attrib["units"] = "%"
+    hist.var_temp.attrib["units"] = "K"
+    hist.var_pres.attrib["units"] = "hPa"
+    hist.var_thetae.attrib["units"] = "K"
+    hist.var_prec.attrib["units"] = "kg/m^2"
+    hist.var_mflux.attrib["units"] = "kg/m/s^2"
+    hist.var_shflux.attrib["units"] = "W/m^2"
+    hist.var_lhflux.attrib["units"] = "W/m^2"
+    hist.var_d_rho_theta_mp.attrib["units"] = "kg K/m^3/s"
+    hist.var_d_rho_qv_mp.attrib["units"] = "kg/m^3/s"
+    hist.var_d_rho_qc_mp.attrib["units"] = "kg/m^3/s"
+    hist.var_d_rho_qr_mp.attrib["units"] = "kg/m^3/s"
+    hist.var_d_rho_qr_sed.attrib["units"] = "kg/m^3/s"
+    hist.var_d_rho_u_sf.attrib["units"] = "kg/m^2/s^2"
+    hist.var_d_rho_theta_sf.attrib["units"] = "kg K/m^3/s"
+    hist.var_d_rho_qv_sf.attrib["units"] = "kg/kg/m^3/s"
+    hist.var_d_rho_theta_rd.attrib["units"] = "kg K/m^3/s"
+
+    var_x[:] = p.x[p.is:p.ie]
+    var_z[:] = p.z[p.ks:p.ke]
+    var_zf[:] = p.zf[p.ks:p.ke]
+
+    return nc, hist
+end
+
 function output_history(hist::History, nc::NCDataset, t::Float64, n_out::Int, s::State, p::Params{T}, Etot0::Float64) where {T}
 
     # Calculate primitive variables for output
@@ -1809,11 +1899,29 @@ function run_sim(; p=Params()) # Use default constructor
 
     num_threads = Threads.nthreads()
     rngs = [Random.Xoshiro(i) for i in 1:num_threads]
-    state = init_state!(allocate_state(p), p, rngs)
-    #state = init_state_BF2002!(allocate_state(p), p)
 
+    state = allocate_state(p)
+    if restart
+        if ! isfile(file_restart)
+	    @error("file is not found: $(file_restart)")
+	end
+        nc = NCDataset(file_restart, "r")
+	rho = nc["rho"][:,:,end]'
+	state.rho[p.ks:p.ke,p.is:p.ie] = rho
+	state.rho_u[p.ks:p.ke,p.is:p.ie] = nc["rhou"][:,:,end]'
+	state.rho_w[p.ks:p.ke,p.is:p.ie] = nc["rhow"][:,:,end]'
+	state.rho_theta[p.ks:p.ke,p.is:p.ie] = nc["theta"][:,:,end]' .* rho
+	state.rho_qv[p.ks:p.ke,p.is:p.ie] = nc["qv"][:,:,end]' .* rho
+	state.rho_qc[p.ks:p.ke,p.is:p.ie] = nc["qc"][:,:,end]' .* rho
+	state.rho_qr[p.ks:p.ke,p.is:p.ie] = nc["qc"][:,:,end]' .* rho
+	state.prec[p.is:p.ie] = nc["prec"][:,end]
+        close(nc)
+    else
+        init_state!(state, p, rngs)
+        #init_state_BF2002!(state, p)
+        fill!(state.prec, FT(0.0)) # Initialize precipitation to zero
+    end
 
-    fill!(state.prec, FT(0.0)) # Initialize precipitation to zero
 
 
     for A in (state.rho, state.rho_u, state.rho_w, state.rho_theta, state.rho_qv, state.rho_qc, state.rho_qr)
@@ -1822,80 +1930,8 @@ function run_sim(; p=Params()) # Use default constructor
 
 
     # Prepare NetCDF file output
-    nc_filename = "history.nc"
-    isfile(nc_filename) && rm(nc_filename) # Remove existing file
-    nc = NCDataset(nc_filename, "c")
-    defDim(nc, "x", p.Nx)
-    defDim(nc, "z", p.Nz)
-    defDim(nc, "time", Inf)
-    var_x = defVar(nc, "x", FT, ("x",))
-    var_z = defVar(nc, "z", FT, ("z",))
-    var_zf = defVar(nc, "zf", FT, ("z",))
-    hist = History(
-        var_time = defVar(nc, "time", FT, ("time",)),
-        var_rho = defVar(nc, "rho", FT, ("x", "z", "time")),
-        var_rhou = defVar(nc, "rhou", FT, ("x", "z", "time")),
-        var_rhow = defVar(nc, "rhow", FT, ("x", "z", "time")),
-        var_u = defVar(nc, "u", FT, ("x", "z", "time")), # velocity u
-        var_w = defVar(nc, "w", FT, ("x", "z", "time")), # velocity w
-        var_theta = defVar(nc, "theta", FT, ("x", "z", "time")), # theta
-        var_qv = defVar(nc, "qv", FT, ("x", "z", "time")), # qv
-        var_qc = defVar(nc, "qc", FT, ("x", "z", "time")), # qc
-        var_qr = defVar(nc, "qr", FT, ("x", "z", "time")), # qr
-        var_RH = defVar(nc, "RH", FT, ("x", "z", "time")), # Relative Humidity
-        var_temp = defVar(nc, "temp", FT, ("x", "z", "time")), # temperature
-        var_pres = defVar(nc, "pres", FT, ("x", "z", "time")), # pressure
-        var_thetae = defVar(nc, "thetae", FT, ("x", "z", "time")), # equivalent potential temperature
-        var_prec = defVar(nc, "prec", FT, ("x", "time")), # precipitation
-        var_mflux = defVar(nc, "mflux", FT, ("x", "time")), # mass flux
-        var_shflux = defVar(nc, "shflux", FT, ("x", "time")), # sensible heat flux
-        var_lhflux = defVar(nc, "lhflux", FT, ("x", "time")), # latent heat flux
-        var_d_rho_theta_mp = defVar(nc, "d_rho_theta_mp", FT, ("x", "z", "time")), # d_rho_theta_mp
-        var_d_rho_qv_mp = defVar(nc, "d_rho_qv_mp", FT, ("x", "z", "time")), # d_rho_qv_mp
-        var_d_rho_qc_mp = defVar(nc, "d_rho_qc_mp", FT, ("x", "z", "time")), # d_rho_qc_mp
-        var_d_rho_qr_mp = defVar(nc, "d_rho_qr_mp", FT, ("x", "z", "time")), # d_rho_qr_mp
-        var_d_rho_qr_sed = defVar(nc, "d_rho_qr_sed", FT, ("x", "z", "time")), # d_rho_qr_sed
-        var_d_rho_u_sf = defVar(nc, "d_rho_u_sf", FT, ("x", "time")), # d_rho_u_sf
-        var_d_rho_theta_sf = defVar(nc, "d_rho_theta_sf", FT, ("x", "time")), # d_rho_theta_sf
-        var_d_rho_qv_sf = defVar(nc, "d_rho_qv_sf", FT, ("x", "time")), # d_rho_qv_sf
-        var_d_rho_theta_rd = defVar(nc, "d_rho_theta_rd", FT, ("x", "z", "time")) # d_rho_theta_rd
-    )
-
-    # Add attributes (units)
-    var_x.attrib["units"] = "m"
-    var_z.attrib["units"] = "m"
-    var_zf.attrib["units"] = "m"
-    hist.var_time.attrib["units"] = "s"
-    hist.var_rho.attrib["units"] = "kg/m^3"
-    hist.var_rhou.attrib["units"] = "kg/m^2/s"
-    hist.var_rhow.attrib["units"] = "kg/m^2/s"
-    hist.var_u.attrib["units"] = "m/s"
-    hist.var_w.attrib["units"] = "m/s"
-    hist.var_theta.attrib["units"] = "K"
-    hist.var_qv.attrib["units"] = "kg/kg"
-    hist.var_qc.attrib["units"] = "kg/kg"
-    hist.var_qr.attrib["units"] = "kg/kg"
-    hist.var_RH.attrib["units"] = "%"
-    hist.var_temp.attrib["units"] = "K"
-    hist.var_pres.attrib["units"] = "hPa"
-    hist.var_thetae.attrib["units"] = "K"
-    hist.var_prec.attrib["units"] = "kg/m^2"
-    hist.var_mflux.attrib["units"] = "kg/m/s^2"
-    hist.var_shflux.attrib["units"] = "W/m^2"
-    hist.var_lhflux.attrib["units"] = "W/m^2"
-    hist.var_d_rho_theta_mp.attrib["units"] = "kg K/m^3/s"
-    hist.var_d_rho_qv_mp.attrib["units"] = "kg/m^3/s"
-    hist.var_d_rho_qc_mp.attrib["units"] = "kg/m^3/s"
-    hist.var_d_rho_qr_mp.attrib["units"] = "kg/m^3/s"
-    hist.var_d_rho_qr_sed.attrib["units"] = "kg/m^3/s"
-    hist.var_d_rho_u_sf.attrib["units"] = "kg/m^2/s^2"
-    hist.var_d_rho_theta_sf.attrib["units"] = "kg K/m^3/s"
-    hist.var_d_rho_qv_sf.attrib["units"] = "kg/kg/m^3/s"
-    hist.var_d_rho_theta_rd.attrib["units"] = "kg K/m^3/s"
- 
-    var_x[:] = p.x[p.is:p.ie]
-    var_z[:] = p.z[p.ks:p.ke]
-    var_zf[:] = p.zf[p.ks:p.ke]
+    file_history = "history.nc"
+    nc, hist = init_history(file_history, p)
 
     t = Float64(0.0)
     Etot0::Float64 = -1.0
