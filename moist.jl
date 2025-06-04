@@ -733,8 +733,9 @@ function surface_fluxes!(d_rho_u_sf, d_rho_theta_sf, d_rho_qv_sf, mflux, shflux,
 
 
         # ---- rho_u ----
-        mflux[i] = rho_surf * Cd * (rho_u[ks, i] / (rho[ks, i] + rho[ks, i+1]) * T(2.0))^2 # Momentum flux (kg/m/s2) at i=1/2
-        d_rho_u_sf[i] = -mflux[i] / p.dz[ks]
+        u = rho_u[ks, i] / (rho[ks, i] + rho[ks, i+1]) * T(2.0)
+        mflux[i] = - rho_surf * Cd * u * abs(u) # Momentum flux (kg/m/s2) at i=1/2
+        d_rho_u_sf[i] = mflux[i] / p.dz[ks]
 
         # ---- rho_theta ----
         sh = rho_surf * Ch * uabs * (theta_surf - theta_ks) * pi_surf
