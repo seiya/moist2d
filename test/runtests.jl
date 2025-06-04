@@ -15,6 +15,9 @@ include("../moist.jl")
 # Set precision for tests
 set_precision!(precision)
 
+# Set constants
+set_constants!(FT)
+
 # Helper for tolerances depending on precision
 # When using Float64, the default tolerance scales with 1e-6
 tol(f32, f64=f32 * 1e-6) = FT === Float64 ? FT(f64) : FT(f32)
@@ -344,7 +347,7 @@ end
 end
 
 @testset "rk3_step" begin
-    p = Params(Nx=4, Nz=4, H=FT(400.0), ns=1)
+    p = Params(Nx=4, Nz=4, H=FT(430.0), dz0=FT(100.0), z_fact=FT(1.05), ns=1)
     rngs = [Random.Xoshiro(i) for i in 1:Threads.nthreads()]
     s_init = init_state!(allocate_state(p), p, rngs)
 
